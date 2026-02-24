@@ -1,24 +1,26 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
 
 # 1. Setup
 st.set_page_config(page_title="Team Sync", layout="centered")
 st_autorefresh(interval=10000, key="datarefresh")
 
-# YOUR DIRECT LINK (Bypasses the broken Secrets box)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1xbvGH7-wpvhSoeYUYArwSQvz4AmTZ-Du_-7zrxBUMCY/edit?usp=sharing"
+# CLEAN URL (No extra characters at the end)
+SHEET_ID = "1xbvGH7-wpvhSoeYUYArwSQvz4AmTZ-Du_-7zrxBUMCY"
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
+NORMAL_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=0"
 
-# 2. Connection
+# 2. Connection Object (needed for writing/approving)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        # We pass the URL directly here
-        return conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", ttl=0)
+        # We use standard pandas to READ (more stable)
+        return pd.read_csv(CSV_URL)
     except Exception as e:
-        st.error(f"❌ Connection Failed: {str(e)}")
+        st.error(f"❌ Read Error: {str(e)}")
         return pd.DataFrame()
 
 df = load_data()
@@ -26,7 +28,7 @@ df = load_data()
 st.title("📲 Team Central Portal")
 
 if not df.empty and 'Name' in df.columns:
-    # --- ADD NEW ---
+    # --- SUBMIT NEW REQUEST ---
     with st.expander("➕ NEW REQUEST"):
         u_name = st.text_input("Name")
         u_req = st.text_area("Request")
@@ -34,23 +36,25 @@ if not df.empty and 'Name' in df.columns:
             if u_name and u_req:
                 new_row = pd.DataFrame([{"ID": len(df)+1, "Name": u_name, "Request": u_req, "Status": "Pending"}])
                 updated = pd.concat([df, new_row], ignore_index=True)
-                # We update using the direct URL too
-                conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=updated)
-                st.success("Sent!")
+                # Write back to Google
+                conn.update(spreadsheet=NORMAL_URL, worksheet="Sheet1", data=updated)
+                st.success("Request sent!")
                 st.rerun()
 
-    # --- DISPLAY ---
+    # --- DISPLAY LIST ---
     st.subheader("📋 Active Requests")
     for i, row in df.iloc[::-1].iterrows():
         with st.container(border=True):
             c1, c2 = st.columns([3, 1])
             c1.write(f"**{row['Name']}**: {row['Request']}")
-            if str(row['Status']) == "Pending":
+            
+            curr_status = str(row['Status'])
+            if curr_status == "Pending" or curr_status == "nan":
                 if c2.button("Approve", key=f"btn_{i}"):
                     df.at[i, 'Status'] = "Approved ✅"
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df)
+                    conn.update(spreadsheet=NORMAL_URL, worksheet="Sheet1", data=df)
                     st.rerun()
             else:
-                c2.write(row['Status'])
+                c2.write(curr_status)
 else:
-    st.warning("Still waiting for Google Sheets connection. If you see this, make sure row 1 of your sheet has headers: ID, Name, Request, Status")
+    st.info("The app is starting up... if you see this for more than 10 seconds, check your Google Sheet row 1 for: ID, Name, Request, Status")
