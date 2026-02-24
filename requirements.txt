@@ -1,2 +1,2 @@
-st-gsheets-connection
+supabase
 streamlit-autorefresh
